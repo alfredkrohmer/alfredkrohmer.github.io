@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <generator uri="http://jekyllrb.com" version="4.2.1">Jekyll</generator>
+  
+  
+  <link href="https://alfredkrohmer.github.io/feed.xml" rel="self" type="application/atom+xml" />
+  <link href="https://alfredkrohmer.github.io/" rel="alternate" type="text/html" />
+  <updated>2022-02-03T22:48:51+01:00</updated>
+  <id>https://alfredkrohmer.github.io//</id>
+
+  
+    <title type="html">Alfred’s Blog</title>
+  
+
+  
+    <subtitle>this &amp; that</subtitle>
+  
+
+  
+
+  
+  
+    <entry>
+      
+      <title type="html">Charging your electric car with excess solar power</title>
+      
+      
+      <link href="https://alfredkrohmer.github.io/2022/02/03/ev-solar-surplus-charging/" rel="alternate" type="text/html" title="Charging your electric car with excess solar power" />
+      
+      <published>2022-02-03T00:00:00+01:00</published>
+      <updated>2022-02-03T00:00:00+01:00</updated>
+      <id>https://alfredkrohmer.github.io/2022/02/03/ev-solar-surplus-charging</id>
+      <content type="html" xml:base="https://alfredkrohmer.github.io/2022/02/03/ev-solar-surplus-charging/">&lt;h2 id=&quot;motivation&quot;&gt;Motivation&lt;/h2&gt;
+
+&lt;p&gt;If you have solar panels on the roof of your house and a wallbox in your garage for charging your eletric car, it makes a lot of sense to try and charge as much solar power as possible directly into the car’s battery and to consume the least possible amount from the grid.&lt;/p&gt;
+
+&lt;p&gt;A possible system to achieve this would need to have the following abilities:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;query the power data of your solar installation and house usage&lt;/li&gt;
+  &lt;li&gt;calculate the surplus power that you want to charge into the car’s battery&lt;/li&gt;
+  &lt;li&gt;control the wallbox in a way that the car charges more or less exactly the surplus power, not more and not less&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Some wallboxes already have the possibility to query the power data from the solar inverter (e.g. the control software of the &lt;a href=&quot;https://openwb.de&quot;&gt;OpenWB&lt;/a&gt;) and control the charging process in a way that only the surplus solar power will be charged into the car’s battery.&lt;/p&gt;
+
+&lt;!--more--&gt;
+
+&lt;p&gt;For charging my Hyundai Ioniq 5 I ordered a &lt;a href=&quot;https://openwb.de/shop/?product=openwb-pro&quot;&gt;OpenWB Pro&lt;/a&gt; instead of one the standard models because it supports HLC (High-Level Communication) and implements ISO 15118. This means:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;it is ready for V2G (vehicle-to-grid, powering your house with the battery of the car)
+    &lt;ul&gt;
+      &lt;li&gt;caveat: technical specifications and regulations for V2G are not ready yet, no car on the market supports it (yet) and hence this feature is still disabled&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;it can potentially query the SoC (State of Charge) of the car battery via the charging cable; this would avoid the necessity to query this data via the cloud of the manufacturer (Hyundai BlueLink in my case)
+    &lt;ul&gt;
+      &lt;li&gt;caveat: while high power chargers can usually query the SoC “on the DC side”, apparently no car supports this “on the AC side” yet&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;I hope for both features to be available at some point in time in the Hyundai Ioniq 5 after a software update.&lt;/p&gt;
+
+&lt;p&gt;The downside of chosing the OpenWB Pro over the standard models is that it doesn’t come with any control software. At the time of writing, it can only be controlled with a HTTP API on &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http://&amp;lt;IP&amp;gt;/connect.php&lt;/code&gt;. (Support for controlling the charging process via OCPP (Open Charging Point Protocol) is supposed to come later.) However, it comes with a minimalistic web interface that shows some data about the charging process and debug logs:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-02-03-ev-solar-surplus-charging/openwb-pro-web-ui.png&quot; alt=&quot;OpenWB Pro web interface screenshot&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;As the OpenWB Pro doesn’t have any control software for controling the charging process according to surplus solar power, I decided to implement this myself.&lt;/p&gt;
+
+&lt;p&gt;I solved the individual required abilities of such a control system with Home Assistant, MQTT and a bit of Python:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;all the data about power production and usage from the my LG Home ESS inverter is queried with &lt;a href=&quot;https://github.com/gluap/pyess&quot;&gt;pyess&lt;/a&gt; and published to Home Assistant via MQTT&lt;/li&gt;
+  &lt;li&gt;a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;template&lt;/code&gt; sensor in Home Assistant calculates the surplus solar power with quite a few knobs that can be tuned to one’s desire&lt;/li&gt;
+  &lt;li&gt;a Python script to control the charging power that the wallbox offers to the car&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;controlling-the-openwb-with-the-http-api&quot;&gt;Controlling the OpenWB with the HTTP API&lt;/h2&gt;
+
+&lt;p&gt;Everything is controlled via the single HTTP endpoint &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http://&amp;lt;IP&amp;gt;/connect.php&lt;/code&gt;.&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;A &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GET&lt;/code&gt; request to this URL yields a JSON blob that contains status information:
+    &lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;$ &lt;/span&gt;curl http://&amp;lt;IP&amp;gt;/connect.php | jq
+&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+&lt;span class=&quot;s2&quot;&gt;&quot;date&quot;&lt;/span&gt;: &lt;span class=&quot;s2&quot;&gt;&quot;2022:02:03-18:16:13&quot;&lt;/span&gt;,
+&lt;span class=&quot;s2&quot;&gt;&quot;timestamp&quot;&lt;/span&gt;: 1643912173,
+&lt;span class=&quot;s2&quot;&gt;&quot;powers&quot;&lt;/span&gt;: &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;
+  0,
+  0,
+  0
+&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;,
+&lt;span class=&quot;s2&quot;&gt;&quot;power_all&quot;&lt;/span&gt;: 0,
+&lt;span class=&quot;s2&quot;&gt;&quot;currents&quot;&lt;/span&gt;: &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;
+  0,
+  0,
+  0
+&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;,
+&lt;span class=&quot;s2&quot;&gt;&quot;imported&quot;&lt;/span&gt;: 14964,
+&lt;span class=&quot;s2&quot;&gt;&quot;exported&quot;&lt;/span&gt;: 0,
+&lt;span class=&quot;s2&quot;&gt;&quot;plug_state&quot;&lt;/span&gt;: &lt;span class=&quot;nb&quot;&gt;true&lt;/span&gt;,
+&lt;span class=&quot;s2&quot;&gt;&quot;charge_state&quot;&lt;/span&gt;: &lt;span class=&quot;nb&quot;&gt;false&lt;/span&gt;,
+&lt;span class=&quot;s2&quot;&gt;&quot;phases_actual&quot;&lt;/span&gt;: 0,
+&lt;span class=&quot;s2&quot;&gt;&quot;phases_target&quot;&lt;/span&gt;: 1,
+&lt;span class=&quot;s2&quot;&gt;&quot;phases_in_use&quot;&lt;/span&gt;: 3,
+&lt;span class=&quot;s2&quot;&gt;&quot;offered_current&quot;&lt;/span&gt;: 0,
+&lt;span class=&quot;s2&quot;&gt;&quot;evse_signaling&quot;&lt;/span&gt;: &lt;span class=&quot;s2&quot;&gt;&quot;basic iec61851&quot;&lt;/span&gt;,
+&lt;span class=&quot;s2&quot;&gt;&quot;v2g_ready&quot;&lt;/span&gt;: 0,
+&lt;span class=&quot;s2&quot;&gt;&quot;vehicle_id&quot;&lt;/span&gt;: &lt;span class=&quot;s2&quot;&gt;&quot;--&quot;&lt;/span&gt;,
+&lt;span class=&quot;s2&quot;&gt;&quot;serial&quot;&lt;/span&gt;: &lt;span class=&quot;s2&quot;&gt;&quot;&amp;lt;omitted&amp;gt;&quot;&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;    &lt;/div&gt;
+  &lt;/li&gt;
+  &lt;li&gt;A &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;POST&lt;/code&gt; request to this URL with form data can control the following:
+    &lt;ul&gt;
+      &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ampere=9.6&lt;/code&gt;: maximum offered current (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;offered_current&lt;/code&gt; in the status), value in ampere with an optional decimal point and one optimal decimal digit&lt;/li&gt;
+      &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;phasetarget=3&lt;/code&gt;: number of phases to use (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;phases_target&lt;/code&gt; in the status)&lt;/li&gt;
+      &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;update=1&lt;/code&gt;: triggers an update of the firmware (software?) on the device; look out for debug logs in the web interface afterwards&lt;/li&gt;
+      &lt;li&gt;it’s &lt;strong&gt;not&lt;/strong&gt; possible to set multiple values at once (only the first provided value will be actually set)&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;setting-the-target-charging-power&quot;&gt;Setting the target charging power&lt;/h3&gt;
+
+&lt;p&gt;That means that we can’t directly set the target charging power here. For any given target power we need to calculate how many phases to use and how much current to offer, with the following restrictions:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;number of phases can be either 1 or 3&lt;/li&gt;
+  &lt;li&gt;offered current needs to be either 0 or between 6 and 16 ampere
+    &lt;ul&gt;
+      &lt;li&gt;6 ampere is the lower limit that the charging protocol allows&lt;/li&gt;
+      &lt;li&gt;16 ampere is the upper limit that the circuit breakers in my installation (and the configuration of the wallbox and legal stuff…) allow&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;This yields two possible, non-overlapping power ranges:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;1380 W (230 V * 6 A) - 3680 W (230 V * 16 A)&lt;/li&gt;
+  &lt;li&gt;4140 W (3 * 230 V * 6 A) - 11040 W (230 V * 16 A)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;and the following calculations for number of phases and offered current depending on the target power:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;target power below 1380 W: turn off (offerend current: 0 A)&lt;/li&gt;
+  &lt;li&gt;target power between 1380 W and 3680 W: use 1 phase, offering current: (Power in Watt / 230 V)&lt;/li&gt;
+  &lt;li&gt;target power between 3680 W and 4140 W: handle like 3680 W&lt;/li&gt;
+  &lt;li&gt;target power between 4140 W and 11040 W: use 3 phases, offering current: (Power in Watt / 230 V / 3)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;controlling-the-charging-power-via-mqtt&quot;&gt;Controlling the charging power via MQTT&lt;/h2&gt;
+
+&lt;p&gt;I created a small &lt;a href=&quot;/assets/2022-02-03-ev-solar-surplus-charging/openwb-mqtt.py&quot;&gt;Python script&lt;/a&gt; that receives the target charging power value via MQTT at &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;openwb/target-power-in-watt&lt;/code&gt; and sets the control values (number of phases to use and the offered current) on the wallbox. It also publishes most of the values of the status query via MQTT at &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;openwb/status/&amp;lt;key&amp;gt;&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;It contains a bunch of safety and reliability features:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;powers below 1380 W will result in setting the offered current to 0 A&lt;/li&gt;
+  &lt;li&gt;powers above 11040 W will be limited to 11040 W&lt;/li&gt;
+  &lt;li&gt;it will only call the wallbox API if one of the control values actually changes compared to the last value that was set&lt;/li&gt;
+  &lt;li&gt;it introduces a wait time of 30 seconds when switching phases from 1 to 3 or from 3 to 1 and back&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Drop this script anywhere you like, adjust the parameters, OpenWB Pro URL and MQTT connection settings to your environment and needs and start it e.g. as a systemd service (you can start it as a user instead of root since it doesn’t need any systems permissions).&lt;/p&gt;
+
+&lt;p&gt;You can test it by publishing target charging power values and look at the status updates via MQTT and by having a look at the log output of the script itself.&lt;/p&gt;
+
+&lt;h2 id=&quot;calculate-the-solar-surplus-power-and-control-the-charging-power-via-home-assistant&quot;&gt;Calculate the solar surplus power and control the charging power via Home Assistant&lt;/h2&gt;
+
+&lt;p&gt;This assumes that the values for&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;power used by the wallbox (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sensor.openwb_power&lt;/code&gt;; get this from status messages published via MQTT by the Python script)&lt;/li&gt;
+  &lt;li&gt;power generated by the solar panels (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sensor.pv_power_total&lt;/code&gt;)&lt;/li&gt;
+  &lt;li&gt;SoC (in %) of the solar battery coupled to the inverter (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sensor.pv_battery_soc&lt;/code&gt;)&lt;/li&gt;
+  &lt;li&gt;power used in the house (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sensor.house_power_usage&lt;/code&gt;; this needs to include the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;openwb_power&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;are already available as sensor values in Home Assistant.&lt;/p&gt;
+
+&lt;h3 id=&quot;fine-tuned-control-over-the-charging-process&quot;&gt;Fine-tuned control over the charging process&lt;/h3&gt;
+
+&lt;p&gt;We will add the following “knobs” (automation helpers) in Home Assistant to be able to fine tune the charging behavior:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;input_select.ioniq_5_maximum_charging_power&lt;/code&gt;: with this slider, the maximum charging power for any operation mode can be configured&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;input_boolean.ioniq_5_charge_surplus&lt;/code&gt;: if this switch is not turned on, no solar surplus charging is happening and instead the configured charging power is offered to the car (see previous point)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;input_boolean.ioniq_5_charge_only_on_limited_grid_feed&lt;/code&gt;: if this switch is turned on, the charging only starts if there is enough solar power to saturate the grid feed-in limit (in my case that’s 50 % of the peak power of 8.2 kW of my installation, so 4.1 kW)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;input_boolean.ioniq_5_charge_when_solar_battery_empty&lt;/code&gt;: if this switch is turned on, the charging process will be started if there is no solar power and the solar battery is empty; hence power will be drawn from the grid (this can be useful in the winter to collect some surplus energy over the day but still fully charge over night from the grid once the solar battery is empty)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;input_boolean.ioniq_5_charge_prefer_solar_battery&lt;/code&gt;: if this switch is turned on, the charging process only starts if there is the solar battery is full or if there is enough solar power to sature the charging power limit of the battery (in my case that’s 5 kW);&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;input_datetime.ioniq_5_charge_prefer_solar_battery_starting&lt;/code&gt;: this configures the clock time starting a which the prefered charging of the solar battery (see previous point) becomes active&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;input_number.ioniq_5_charge_prefer_solar_battery_up_to&lt;/code&gt;: this configures the power that will be dedicated to the solar battery if it’s charged preferably (can be used to dedicate a lower power than the charging power limit to the solar battery)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;calculating-the-surplus-solar-power&quot;&gt;Calculating the surplus solar power&lt;/h3&gt;
+
+&lt;p&gt;Put this in your &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;configuration.yaml&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;na&quot;&gt;template&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;trigger&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;platform&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;state&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;entity_id&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_select.ioniq_5_maximum_charging_power&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_boolean.ioniq_5_charge_surplus&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_boolean.ioniq_5_charge_prefer_solar_battery&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_datetime.ioniq_5_charge_prefer_solar_battery_starting&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_number.ioniq_5_charge_prefer_solar_battery_up_to&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_boolean.ioniq_5_charge_only_on_limited_grid_feed&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_boolean.ioniq_5_charge_when_solar_battery_empty&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;sensor.pv_power_total&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;sensor.pv_battery_soc&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;sensor.house_power_usage&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;~&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;platform&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;time&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;at&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;input_datetime.ioniq_5_charge_prefer_solar_battery_starting&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;sensor&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Ioniq 5 Target Charging Power&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;icon&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;mdi:ev-station&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;device_class&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;power&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;unit_of_measurement&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;W'&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;state&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;&amp;gt;-&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;{% set max_power = states.input_select.ioniq_5_maximum_charging_power.state | regex_replace(' W$', '') | int %}&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;{% if states.input_boolean.ioniq_5_charge_surplus.state == &quot;on&quot; %}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% set pv_power = states.sensor.pv_power_total.state | int %}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% set battery_soc = states.sensor.pv_battery_soc.state | int %}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% set house_power_usage = states.sensor.house_power_usage.state | int %}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% set openwb_power = states.sensor.openwb_power.state | int %}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% set grid_feed_in_limit = 4100 if (states.input_boolean.ioniq_5_charge_only_on_limited_grid_feed.state == &quot;on&quot;) else 0 %}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{%&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;set solar_battery_preferred_power = (min([&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;(states.input_number.ioniq_5_charge_prefer_solar_battery.state | int),&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;2500+(100-battery_soc)*400 if battery_soc &amp;gt; 95 else 5000&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;]) | int) if (&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;states.input_boolean.ioniq_5_charge_prefer_solar_battery.state == &quot;on&quot; and&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;battery_soc &amp;lt; 100 and&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;now().replace(&lt;/span&gt;
+              &lt;span class=&quot;s&quot;&gt;hour=states.input_datetime.ioniq_5_charge_prefer_solar_battery_starting.attributes.hour,&lt;/span&gt;
+              &lt;span class=&quot;s&quot;&gt;minute=states.input_datetime.ioniq_5_charge_prefer_solar_battery_starting.attributes.minute,&lt;/span&gt;
+              &lt;span class=&quot;s&quot;&gt;second=0,&lt;/span&gt;
+              &lt;span class=&quot;s&quot;&gt;microsecond=0&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;) &amp;lt;= now()&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;) else 0&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;%}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{%&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;set surplus = (&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;+ pv_power&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;- grid_feed_in_limit&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;- solar_battery_preferred_power&lt;/span&gt;
+            &lt;span class=&quot;s&quot;&gt;- max([0, house_power_usage - openwb_power])&lt;/span&gt;
+           &lt;span class=&quot;s&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;%}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% if surplus &amp;gt; 1380 %}&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;{{ min([max_power, surplus]) | string }}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% elif states.input_boolean.ioniq_5_charge_when_solar_battery_empty.state == &quot;on&quot; and battery_soc == 0 %}&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;{{ max_power | string }}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% else %}&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;0&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{% endif %}&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;{% else %}&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;{{ max_power | string }}&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;{% endif %}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Notes&lt;/strong&gt;:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;trigger&lt;/code&gt; setting is included here so that the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;template&lt;/code&gt; sensor value will be re-calculated when &lt;em&gt;any&lt;/em&gt; of the referenced state values change &lt;em&gt;except&lt;/em&gt; for when &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;openwb_power&lt;/code&gt; changes because &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;openwb_power&lt;/code&gt; will be updating more often than the other values, potentially causing problems when subtracting this from the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;house_power_usage&lt;/code&gt; value (that might not include be updated yet to include the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;openwb_power&lt;/code&gt;).&lt;/li&gt;
+  &lt;li&gt;The calculation for preferring the solar battery assumes the charging power limit to drop above 95 % SoC.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The calculated target charging power will be available as a sensor entity called &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sensor.ioniq_5_target_charging_power&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;publishing-the-calculated-the-target-charging-power-via-mqtt-to-control-the-wallbox&quot;&gt;Publishing the calculated the target charging power via MQTT to control the wallbox&lt;/h3&gt;
+
+&lt;p&gt;Put this in your &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;automations.yaml&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;alias&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Ioniq 5 Control Charging Power&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;description&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;'&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;trigger&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;platform&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;state&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;entity_id&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;sensor.ioniq_5_target_charging_power&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;~&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;condition&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;[]&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;action&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;delay&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;hours&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;minutes&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;seconds&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;milliseconds&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;service&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;mqtt.publish&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;data_template&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;topic&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;openwb/target-power-in-watt&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;retain&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;true&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;payload&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;states.sensor.ioniq_5_target_charging_power.state&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;}}'&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;mode&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;restart&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;configure-the-ui-with-the-control-knobs&quot;&gt;Configure the UI with the control knobs&lt;/h3&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-02-03-ev-solar-surplus-charging/ha-control-knobs.png&quot; alt=&quot;Home Assistant control knobs screenshot&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;That’s it!&lt;/p&gt;</content>
+
+      
+      
+      
+      
+      
+
+      
+
+      
+
+      
+        <category term="photovoltaics" />
+      
+        <category term="electric-vehicle" />
+      
+        <category term="solar" />
+      
+        <category term="homeassistant" />
+      
+
+      
+        <summary type="html">Motivation If you have solar panels on the roof of your house and a wallbox in your garage for charging your eletric car, it makes a lot of sense to try and charge as much solar power as possible directly into the car’s battery and to consume the least possible amount from the grid. A possible system to achieve this would need to have the following abilities: query the power data of your solar installation and house usage calculate the surplus power that you want to charge into the car’s battery control the wallbox in a way that the car charges more or less exactly the surplus power, not more and not less Some wallboxes already have the possibility to query the power data from the solar inverter (e.g. the control software of the OpenWB) and control the charging process in a way that only the surplus solar power will be charged into the car’s battery.</summary>
+      
+
+      
+      
+    </entry>
+  
+  
+</feed>

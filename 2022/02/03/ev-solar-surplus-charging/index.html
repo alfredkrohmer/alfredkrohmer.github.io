@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  
+  
+  <title>Charging your electric car with excess solar power</title>
+  <meta name="description" content="Motivation If you have solar panels on the roof of your house and a wallbox in your garage for charging your eletric car, it makes a lot of sense to try and charge as much solar power as possible directly into the car’s battery and to consume the least possible amount from the grid. A possible system to achieve this would need to have the following abilities: query the power data of your solar installation and house usage calculate the surplus power that you want to charge into the car’s battery control the wallbox in a way that the car charges more or less exactly the surplus power, not more and not less Some wallboxes already have the possibility to query the power data from the solar inverter (e.g. the control software of the OpenWB) and control the charging process in a way that only the surplus solar power will be charged into the car’s battery.">
+  
+
+  <link rel="stylesheet" href="/assets/main.css">
+  <link rel="canonical" href="https://alfredkrohmer.github.io/2022/02/03/ev-solar-surplus-charging/">
+  
+  
+  <link rel="alternate" type="application/rss+xml" title="Alfred&#39;s Blog" href="https://alfredkrohmer.github.io/feed.xml">
+
+  
+
+  
+  <meta property="og:title" content="Charging your electric car with excess solar power">
+  <meta property="og:site_name" content="Alfred&#39;s Blog">
+  <meta property="og:url" content="https://alfredkrohmer.github.io/2022/02/03/ev-solar-surplus-charging/">
+  <meta property="og:description" content="Motivation If you have solar panels on the roof of your house and a wallbox in your garage for charging your eletric car, it makes a lot of sense to try and charge as much solar power as possible directly into the car’s battery and to consume the least possible amount from the grid. A possible system to achieve this would need to have the following abilities: query the power data of your solar installation and house usage calculate the surplus power that you want to charge into the car’s battery control the wallbox in a way that the car charges more or less exactly the surplus power, not more and not less Some wallboxes already have the possibility to query the power data from the solar inverter (e.g. the control software of the OpenWB) and control the charging process in a way that only the surplus solar power will be charged into the car’s battery.">
+  
+  
+  <meta name="twitter:card" content="summary">
+  
+  <meta name="twitter:title" content="Charging your electric car with excess solar power">
+  <meta name="twitter:description" content="Motivation If you have solar panels on the roof of your house and a wallbox in your garage for charging your eletric car, it makes a lot of sense to try and charge as much solar power as possible d...">
+  
+  
+
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:ital,wght@0,400;0,700;1,400&amp;display=swap" rel="stylesheet">
+
+  
+
+</head>
+
+
+  <body>
+
+    <header class="site-header">
+
+  <div class="wrapper">
+
+    <a class="site-title" href="/">Alfred&#39;s Blog</a>
+
+    <nav class="site-nav">
+      
+        
+        <a class="page-link" href="/about/">About</a>
+      
+        
+        <a class="page-link" href="/archives/">Archives</a>
+      
+        
+        <a class="page-link" href="https://github.com/alfredkrohmer">GitHub</a>
+      
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    
+      <h1 class="post-title" itemprop="name headline">Charging your electric car with excess solar power</h1>
+    
+    <p class="post-meta"><time datetime="2022-02-03T00:00:00+01:00" itemprop="datePublished">Feb 3, 2022</time>
+
+ •
+  
+    
+    
+      
+        <a href="/tags/photovoltaics/">photovoltaics</a>,
+      
+    
+      
+    
+      
+    
+      
+    
+  
+    
+    
+      
+    
+      
+        <a href="/tags/electric-vehicle/">electric-vehicle</a>,
+      
+    
+      
+    
+      
+    
+  
+    
+    
+      
+    
+      
+    
+      
+        <a href="/tags/solar/">solar</a>,
+      
+    
+      
+    
+  
+    
+    
+      
+    
+      
+    
+      
+    
+      
+        <a href="/tags/homeassistant/">homeassistant</a>
+      
+    
+  
+
+</p>
+  </header>
+
+  <div class="post-content" itemprop="articleBody">
+    <h2 id="motivation">Motivation</h2>
+
+<p>If you have solar panels on the roof of your house and a wallbox in your garage for charging your eletric car, it makes a lot of sense to try and charge as much solar power as possible directly into the car’s battery and to consume the least possible amount from the grid.</p>
+
+<p>A possible system to achieve this would need to have the following abilities:</p>
+<ul>
+  <li>query the power data of your solar installation and house usage</li>
+  <li>calculate the surplus power that you want to charge into the car’s battery</li>
+  <li>control the wallbox in a way that the car charges more or less exactly the surplus power, not more and not less</li>
+</ul>
+
+<p>Some wallboxes already have the possibility to query the power data from the solar inverter (e.g. the control software of the <a href="https://openwb.de">OpenWB</a>) and control the charging process in a way that only the surplus solar power will be charged into the car’s battery.</p>
+
+<!--more-->
+
+<p>For charging my Hyundai Ioniq 5 I ordered a <a href="https://openwb.de/shop/?product=openwb-pro">OpenWB Pro</a> instead of one the standard models because it supports HLC (High-Level Communication) and implements ISO 15118. This means:</p>
+<ul>
+  <li>it is ready for V2G (vehicle-to-grid, powering your house with the battery of the car)
+    <ul>
+      <li>caveat: technical specifications and regulations for V2G are not ready yet, no car on the market supports it (yet) and hence this feature is still disabled</li>
+    </ul>
+  </li>
+  <li>it can potentially query the SoC (State of Charge) of the car battery via the charging cable; this would avoid the necessity to query this data via the cloud of the manufacturer (Hyundai BlueLink in my case)
+    <ul>
+      <li>caveat: while high power chargers can usually query the SoC “on the DC side”, apparently no car supports this “on the AC side” yet</li>
+    </ul>
+  </li>
+</ul>
+
+<p>I hope for both features to be available at some point in time in the Hyundai Ioniq 5 after a software update.</p>
+
+<p>The downside of chosing the OpenWB Pro over the standard models is that it doesn’t come with any control software. At the time of writing, it can only be controlled with a HTTP API on <code class="language-plaintext highlighter-rouge">http://&lt;IP&gt;/connect.php</code>. (Support for controlling the charging process via OCPP (Open Charging Point Protocol) is supposed to come later.) However, it comes with a minimalistic web interface that shows some data about the charging process and debug logs:</p>
+
+<p><img src="/assets/2022-02-03-ev-solar-surplus-charging/openwb-pro-web-ui.png" alt="OpenWB Pro web interface screenshot" /></p>
+
+<p>As the OpenWB Pro doesn’t have any control software for controling the charging process according to surplus solar power, I decided to implement this myself.</p>
+
+<p>I solved the individual required abilities of such a control system with Home Assistant, MQTT and a bit of Python:</p>
+<ul>
+  <li>all the data about power production and usage from the my LG Home ESS inverter is queried with <a href="https://github.com/gluap/pyess">pyess</a> and published to Home Assistant via MQTT</li>
+  <li>a <code class="language-plaintext highlighter-rouge">template</code> sensor in Home Assistant calculates the surplus solar power with quite a few knobs that can be tuned to one’s desire</li>
+  <li>a Python script to control the charging power that the wallbox offers to the car</li>
+</ul>
+
+<h2 id="controlling-the-openwb-with-the-http-api">Controlling the OpenWB with the HTTP API</h2>
+
+<p>Everything is controlled via the single HTTP endpoint <code class="language-plaintext highlighter-rouge">http://&lt;IP&gt;/connect.php</code>.</p>
+<ul>
+  <li>A <code class="language-plaintext highlighter-rouge">GET</code> request to this URL yields a JSON blob that contains status information:
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>curl http://&lt;IP&gt;/connect.php | jq
+<span class="o">{</span>
+<span class="s2">"date"</span>: <span class="s2">"2022:02:03-18:16:13"</span>,
+<span class="s2">"timestamp"</span>: 1643912173,
+<span class="s2">"powers"</span>: <span class="o">[</span>
+  0,
+  0,
+  0
+<span class="o">]</span>,
+<span class="s2">"power_all"</span>: 0,
+<span class="s2">"currents"</span>: <span class="o">[</span>
+  0,
+  0,
+  0
+<span class="o">]</span>,
+<span class="s2">"imported"</span>: 14964,
+<span class="s2">"exported"</span>: 0,
+<span class="s2">"plug_state"</span>: <span class="nb">true</span>,
+<span class="s2">"charge_state"</span>: <span class="nb">false</span>,
+<span class="s2">"phases_actual"</span>: 0,
+<span class="s2">"phases_target"</span>: 1,
+<span class="s2">"phases_in_use"</span>: 3,
+<span class="s2">"offered_current"</span>: 0,
+<span class="s2">"evse_signaling"</span>: <span class="s2">"basic iec61851"</span>,
+<span class="s2">"v2g_ready"</span>: 0,
+<span class="s2">"vehicle_id"</span>: <span class="s2">"--"</span>,
+<span class="s2">"serial"</span>: <span class="s2">"&lt;omitted&gt;"</span>
+<span class="o">}</span>
+</code></pre></div>    </div>
+  </li>
+  <li>A <code class="language-plaintext highlighter-rouge">POST</code> request to this URL with form data can control the following:
+    <ul>
+      <li><code class="language-plaintext highlighter-rouge">ampere=9.6</code>: maximum offered current (<code class="language-plaintext highlighter-rouge">offered_current</code> in the status), value in ampere with an optional decimal point and one optimal decimal digit</li>
+      <li><code class="language-plaintext highlighter-rouge">phasetarget=3</code>: number of phases to use (<code class="language-plaintext highlighter-rouge">phases_target</code> in the status)</li>
+      <li><code class="language-plaintext highlighter-rouge">update=1</code>: triggers an update of the firmware (software?) on the device; look out for debug logs in the web interface afterwards</li>
+      <li>it’s <strong>not</strong> possible to set multiple values at once (only the first provided value will be actually set)</li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="setting-the-target-charging-power">Setting the target charging power</h3>
+
+<p>That means that we can’t directly set the target charging power here. For any given target power we need to calculate how many phases to use and how much current to offer, with the following restrictions:</p>
+<ul>
+  <li>number of phases can be either 1 or 3</li>
+  <li>offered current needs to be either 0 or between 6 and 16 ampere
+    <ul>
+      <li>6 ampere is the lower limit that the charging protocol allows</li>
+      <li>16 ampere is the upper limit that the circuit breakers in my installation (and the configuration of the wallbox and legal stuff…) allow</li>
+    </ul>
+  </li>
+</ul>
+
+<p>This yields two possible, non-overlapping power ranges:</p>
+<ul>
+  <li>1380 W (230 V * 6 A) - 3680 W (230 V * 16 A)</li>
+  <li>4140 W (3 * 230 V * 6 A) - 11040 W (230 V * 16 A)</li>
+</ul>
+
+<p>and the following calculations for number of phases and offered current depending on the target power:</p>
+<ul>
+  <li>target power below 1380 W: turn off (offerend current: 0 A)</li>
+  <li>target power between 1380 W and 3680 W: use 1 phase, offering current: (Power in Watt / 230 V)</li>
+  <li>target power between 3680 W and 4140 W: handle like 3680 W</li>
+  <li>target power between 4140 W and 11040 W: use 3 phases, offering current: (Power in Watt / 230 V / 3)</li>
+</ul>
+
+<h2 id="controlling-the-charging-power-via-mqtt">Controlling the charging power via MQTT</h2>
+
+<p>I created a small <a href="/assets/2022-02-03-ev-solar-surplus-charging/openwb-mqtt.py">Python script</a> that receives the target charging power value via MQTT at <code class="language-plaintext highlighter-rouge">openwb/target-power-in-watt</code> and sets the control values (number of phases to use and the offered current) on the wallbox. It also publishes most of the values of the status query via MQTT at <code class="language-plaintext highlighter-rouge">openwb/status/&lt;key&gt;</code>.</p>
+
+<p>It contains a bunch of safety and reliability features:</p>
+<ul>
+  <li>powers below 1380 W will result in setting the offered current to 0 A</li>
+  <li>powers above 11040 W will be limited to 11040 W</li>
+  <li>it will only call the wallbox API if one of the control values actually changes compared to the last value that was set</li>
+  <li>it introduces a wait time of 30 seconds when switching phases from 1 to 3 or from 3 to 1 and back</li>
+</ul>
+
+<p>Drop this script anywhere you like, adjust the parameters, OpenWB Pro URL and MQTT connection settings to your environment and needs and start it e.g. as a systemd service (you can start it as a user instead of root since it doesn’t need any systems permissions).</p>
+
+<p>You can test it by publishing target charging power values and look at the status updates via MQTT and by having a look at the log output of the script itself.</p>
+
+<h2 id="calculate-the-solar-surplus-power-and-control-the-charging-power-via-home-assistant">Calculate the solar surplus power and control the charging power via Home Assistant</h2>
+
+<p>This assumes that the values for</p>
+<ul>
+  <li>power used by the wallbox (<code class="language-plaintext highlighter-rouge">sensor.openwb_power</code>; get this from status messages published via MQTT by the Python script)</li>
+  <li>power generated by the solar panels (<code class="language-plaintext highlighter-rouge">sensor.pv_power_total</code>)</li>
+  <li>SoC (in %) of the solar battery coupled to the inverter (<code class="language-plaintext highlighter-rouge">sensor.pv_battery_soc</code>)</li>
+  <li>power used in the house (<code class="language-plaintext highlighter-rouge">sensor.house_power_usage</code>; this needs to include the <code class="language-plaintext highlighter-rouge">openwb_power</code>)</li>
+</ul>
+
+<p>are already available as sensor values in Home Assistant.</p>
+
+<h3 id="fine-tuned-control-over-the-charging-process">Fine-tuned control over the charging process</h3>
+
+<p>We will add the following “knobs” (automation helpers) in Home Assistant to be able to fine tune the charging behavior:</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">input_select.ioniq_5_maximum_charging_power</code>: with this slider, the maximum charging power for any operation mode can be configured</li>
+  <li><code class="language-plaintext highlighter-rouge">input_boolean.ioniq_5_charge_surplus</code>: if this switch is not turned on, no solar surplus charging is happening and instead the configured charging power is offered to the car (see previous point)</li>
+  <li><code class="language-plaintext highlighter-rouge">input_boolean.ioniq_5_charge_only_on_limited_grid_feed</code>: if this switch is turned on, the charging only starts if there is enough solar power to saturate the grid feed-in limit (in my case that’s 50 % of the peak power of 8.2 kW of my installation, so 4.1 kW)</li>
+  <li><code class="language-plaintext highlighter-rouge">input_boolean.ioniq_5_charge_when_solar_battery_empty</code>: if this switch is turned on, the charging process will be started if there is no solar power and the solar battery is empty; hence power will be drawn from the grid (this can be useful in the winter to collect some surplus energy over the day but still fully charge over night from the grid once the solar battery is empty)</li>
+  <li><code class="language-plaintext highlighter-rouge">input_boolean.ioniq_5_charge_prefer_solar_battery</code>: if this switch is turned on, the charging process only starts if there is the solar battery is full or if there is enough solar power to sature the charging power limit of the battery (in my case that’s 5 kW);</li>
+  <li><code class="language-plaintext highlighter-rouge">input_datetime.ioniq_5_charge_prefer_solar_battery_starting</code>: this configures the clock time starting a which the prefered charging of the solar battery (see previous point) becomes active</li>
+  <li><code class="language-plaintext highlighter-rouge">input_number.ioniq_5_charge_prefer_solar_battery_up_to</code>: this configures the power that will be dedicated to the solar battery if it’s charged preferably (can be used to dedicate a lower power than the charging power limit to the solar battery)</li>
+</ul>
+
+<h3 id="calculating-the-surplus-solar-power">Calculating the surplus solar power</h3>
+
+<p>Put this in your <code class="language-plaintext highlighter-rouge">configuration.yaml</code>:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">template</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="na">trigger</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">platform</span><span class="pi">:</span> <span class="s">state</span>
+    <span class="na">entity_id</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">input_select.ioniq_5_maximum_charging_power</span>
+    <span class="pi">-</span> <span class="s">input_boolean.ioniq_5_charge_surplus</span>
+    <span class="pi">-</span> <span class="s">input_boolean.ioniq_5_charge_prefer_solar_battery</span>
+    <span class="pi">-</span> <span class="s">input_datetime.ioniq_5_charge_prefer_solar_battery_starting</span>
+    <span class="pi">-</span> <span class="s">input_number.ioniq_5_charge_prefer_solar_battery_up_to</span>
+    <span class="pi">-</span> <span class="s">input_boolean.ioniq_5_charge_only_on_limited_grid_feed</span>
+    <span class="pi">-</span> <span class="s">input_boolean.ioniq_5_charge_when_solar_battery_empty</span>
+    <span class="pi">-</span> <span class="s">sensor.pv_power_total</span>
+    <span class="pi">-</span> <span class="s">sensor.pv_battery_soc</span>
+    <span class="pi">-</span> <span class="s">sensor.house_power_usage</span>
+    <span class="na">to</span><span class="pi">:</span> <span class="s">~</span>
+  <span class="pi">-</span> <span class="na">platform</span><span class="pi">:</span> <span class="s">time</span>
+    <span class="na">at</span><span class="pi">:</span> <span class="s">input_datetime.ioniq_5_charge_prefer_solar_battery_starting</span>
+  <span class="na">sensor</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">Ioniq 5 Target Charging Power</span>
+    <span class="na">icon</span><span class="pi">:</span> <span class="s">mdi:ev-station</span>
+    <span class="na">device_class</span><span class="pi">:</span> <span class="s">power</span>
+    <span class="na">unit_of_measurement</span><span class="pi">:</span> <span class="s1">'</span><span class="s">W'</span>
+    <span class="na">state</span><span class="pi">:</span> <span class="pi">&gt;-</span>
+      <span class="s">{% set max_power = states.input_select.ioniq_5_maximum_charging_power.state | regex_replace(' W$', '') | int %}</span>
+      <span class="s">{% if states.input_boolean.ioniq_5_charge_surplus.state == "on" %}</span>
+        <span class="s">{% set pv_power = states.sensor.pv_power_total.state | int %}</span>
+        <span class="s">{% set battery_soc = states.sensor.pv_battery_soc.state | int %}</span>
+        <span class="s">{% set house_power_usage = states.sensor.house_power_usage.state | int %}</span>
+        <span class="s">{% set openwb_power = states.sensor.openwb_power.state | int %}</span>
+        <span class="s">{% set grid_feed_in_limit = 4100 if (states.input_boolean.ioniq_5_charge_only_on_limited_grid_feed.state == "on") else 0 %}</span>
+        <span class="s">{%</span>
+          <span class="s">set solar_battery_preferred_power = (min([</span>
+            <span class="s">(states.input_number.ioniq_5_charge_prefer_solar_battery.state | int),</span>
+            <span class="s">2500+(100-battery_soc)*400 if battery_soc &gt; 95 else 5000</span>
+          <span class="s">]) | int) if (</span>
+            <span class="s">states.input_boolean.ioniq_5_charge_prefer_solar_battery.state == "on" and</span>
+            <span class="s">battery_soc &lt; 100 and</span>
+            <span class="s">now().replace(</span>
+              <span class="s">hour=states.input_datetime.ioniq_5_charge_prefer_solar_battery_starting.attributes.hour,</span>
+              <span class="s">minute=states.input_datetime.ioniq_5_charge_prefer_solar_battery_starting.attributes.minute,</span>
+              <span class="s">second=0,</span>
+              <span class="s">microsecond=0</span>
+            <span class="s">) &lt;= now()</span>
+          <span class="s">) else 0</span>
+        <span class="s">%}</span>
+        <span class="s">{%</span>
+          <span class="s">set surplus = (</span>
+            <span class="s">+ pv_power</span>
+            <span class="s">- grid_feed_in_limit</span>
+            <span class="s">- solar_battery_preferred_power</span>
+            <span class="s">- max([0, house_power_usage - openwb_power])</span>
+           <span class="s">)</span>
+        <span class="s">%}</span>
+        <span class="s">{% if surplus &gt; 1380 %}</span>
+          <span class="s">{{ min([max_power, surplus]) | string }}</span>
+        <span class="s">{% elif states.input_boolean.ioniq_5_charge_when_solar_battery_empty.state == "on" and battery_soc == 0 %}</span>
+          <span class="s">{{ max_power | string }}</span>
+        <span class="s">{% else %}</span>
+          <span class="s">0</span>
+        <span class="s">{% endif %}</span>
+      <span class="s">{% else %}</span>
+        <span class="s">{{ max_power | string }}</span>
+      <span class="s">{% endif %}</span>
+</code></pre></div></div>
+
+<p><strong>Notes</strong>:</p>
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">trigger</code> setting is included here so that the <code class="language-plaintext highlighter-rouge">template</code> sensor value will be re-calculated when <em>any</em> of the referenced state values change <em>except</em> for when <code class="language-plaintext highlighter-rouge">openwb_power</code> changes because <code class="language-plaintext highlighter-rouge">openwb_power</code> will be updating more often than the other values, potentially causing problems when subtracting this from the <code class="language-plaintext highlighter-rouge">house_power_usage</code> value (that might not include be updated yet to include the <code class="language-plaintext highlighter-rouge">openwb_power</code>).</li>
+  <li>The calculation for preferring the solar battery assumes the charging power limit to drop above 95 % SoC.</li>
+</ul>
+
+<p>The calculated target charging power will be available as a sensor entity called <code class="language-plaintext highlighter-rouge">sensor.ioniq_5_target_charging_power</code>.</p>
+
+<h3 id="publishing-the-calculated-the-target-charging-power-via-mqtt-to-control-the-wallbox">Publishing the calculated the target charging power via MQTT to control the wallbox</h3>
+
+<p>Put this in your <code class="language-plaintext highlighter-rouge">automations.yaml</code>:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="pi">-</span> <span class="na">alias</span><span class="pi">:</span> <span class="s">Ioniq 5 Control Charging Power</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+  <span class="na">trigger</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">platform</span><span class="pi">:</span> <span class="s">state</span>
+    <span class="na">entity_id</span><span class="pi">:</span> <span class="s">sensor.ioniq_5_target_charging_power</span>
+    <span class="na">to</span><span class="pi">:</span> <span class="s">~</span>
+  <span class="na">condition</span><span class="pi">:</span> <span class="pi">[]</span>
+  <span class="na">action</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">delay</span><span class="pi">:</span>
+      <span class="na">hours</span><span class="pi">:</span> <span class="m">0</span>
+      <span class="na">minutes</span><span class="pi">:</span> <span class="m">0</span>
+      <span class="na">seconds</span><span class="pi">:</span> <span class="m">1</span>
+      <span class="na">milliseconds</span><span class="pi">:</span> <span class="m">0</span>
+  <span class="pi">-</span> <span class="na">service</span><span class="pi">:</span> <span class="s">mqtt.publish</span>
+    <span class="na">data_template</span><span class="pi">:</span>
+      <span class="na">topic</span><span class="pi">:</span> <span class="s">openwb/target-power-in-watt</span>
+      <span class="na">retain</span><span class="pi">:</span> <span class="no">true</span>
+      <span class="na">payload</span><span class="pi">:</span> <span class="s1">'</span><span class="s">{{</span><span class="nv"> </span><span class="s">states.sensor.ioniq_5_target_charging_power.state</span><span class="nv"> </span><span class="s">}}'</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">restart</span>
+</code></pre></div></div>
+
+<h3 id="configure-the-ui-with-the-control-knobs">Configure the UI with the control knobs</h3>
+
+<p><img src="/assets/2022-02-03-ev-solar-surplus-charging/ha-control-knobs.png" alt="Home Assistant control knobs screenshot" /></p>
+
+<p>That’s it!</p>
+
+  </div>
+
+  
+
+</article>
+
+      </div>
+    </main>
+
+    <footer class="site-footer">
+
+  <div class="wrapper">
+
+    <p>
+      
+
+&copy;  - Powered by <a href="https://jekyllrb.com">Jekyll</a> &amp; <a href="https://github.com/yous/whiteglass">whiteglass</a> - Subscribe via <a href="https://alfredkrohmer.github.io/feed.xml">RSS</a>
+
+    </p>
+
+  </div>
+
+</footer>
+
+
+  </body>
+
+</html>
